@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Entry point for Skibidi Physics.
+"""Entry point -- opens the game-select launcher.
 
 Run with:  python main.py
 """
-from skibidi.game import Game
+from launcher import Launcher
 
 
 def main():
-    game = Game()
-    game.run()
+    Launcher().run()
 
 
 if __name__ == "__main__":

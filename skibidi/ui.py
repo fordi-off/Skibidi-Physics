@@ -92,7 +92,7 @@ class UI:
             "T                     -  toggle the AI racer on/off",
             "R                     -  restart this level",
             "F11                   -  toggle fullscreen",
-            "Esc                   -  pause",
+            "Esc                   -  pause (in level) / back to game select (here)",
         ]
         y = 320
         for ln in lines:

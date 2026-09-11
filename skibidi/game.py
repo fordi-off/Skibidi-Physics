@@ -4,6 +4,7 @@ import json
 import math
 import os
 import random
+import sys
 
 import pygame
 import pymunk
@@ -57,6 +58,7 @@ class Game:
         self.particles = ParticleSystem()
         self.camera = Camera()
         self.save = load_save()
+        self.ball_texture = self._load_ball_texture()
 
         self.stars = [
             (random.uniform(0, C.SCREEN_WIDTH * 2), random.uniform(0, C.SCREEN_HEIGHT * 0.75),
@@ -75,6 +77,7 @@ class Game:
         self.accumulator = 0.0
         self.move_dir = 0
         self.reeling_in = False
+        self.want_exit = None  # set to "menu" or "quit" to break run_embedded()
 
         self.space = None
         self.level = None
@@ -100,6 +103,14 @@ class Game:
         # world-space or UI coordinates elsewhere in the code. Mouse
         # positions from pygame are already translated back into this
         # logical space, so grapple aiming needs no extra handling.
+        #
+        # display.quit()/init() before re-creating the window: SCALED mode
+        # builds an SDL renderer under the hood, and re-running set_mode()
+        # for a *different* mode later in the same process (e.g. switching
+        # back from this game to a launcher menu, or vice versa) can leave
+        # stale renderer state that fails on some drivers otherwise.
+        pygame.display.quit()
+        pygame.display.init()
         flags = pygame.SCALED | (pygame.FULLSCREEN if fullscreen else 0)
         try:
             return pygame.display.set_mode((C.SCREEN_WIDTH, C.SCREEN_HEIGHT), flags)
@@ -112,6 +123,27 @@ class Game:
     def toggle_fullscreen(self):
         self.fullscreen = not self.fullscreen
         self.screen = self._make_display(self.fullscreen)
+
+    def _load_ball_texture(self):
+        # Drop a portrait at skibidi/assets/ball_face.png and the human
+        # player's ball uses it (circle-masked, and rotated live with the
+        # ball's own spin) instead of the plain glow-ball look. Reloaded
+        # fresh every time a Game() is constructed -- never cached at
+        # module level -- since it's tied to whichever display mode is
+        # active right now.
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "ball_face.png")
+        if not os.path.exists(path):
+            return None
+        try:
+            diameter = int(C.PLAYER_RADIUS * 2)
+            img = pygame.image.load(path).convert_alpha()
+            img = pygame.transform.smoothscale(img, (diameter, diameter))
+            mask = pygame.Surface((diameter, diameter), pygame.SRCALPHA)
+            pygame.draw.circle(mask, (255, 255, 255, 255), (diameter // 2, diameter // 2), diameter // 2)
+            img.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+            return img
+        except Exception:
+            return None
 
     # ------------------------------------------------------------ setup
     def _build_space(self):
@@ -379,6 +411,8 @@ class Game:
                     self.state = PAUSED
                 elif self.state == PAUSED:
                     self.state = PLAYING
+                elif self.state == MENU:
+                    self.want_exit = "menu"
             elif event.key == pygame.K_r:
                 if self.state in (PLAYING, PAUSED, LEVEL_COMPLETE):
                     self.audio.play("select")
@@ -578,11 +612,17 @@ class Game:
                             (glow.get_width() // 2, glow.get_height() // 2), int(r * 2.1))
         surf.blit(glow, (sx - glow.get_width() // 2, sy - glow.get_height() // 2),
                    special_flags=pygame.BLEND_RGBA_ADD)
-        pygame.draw.circle(surf, color, (sx, sy), r)
-        pygame.draw.circle(surf, (255, 255, 255), (sx, sy), r, 2)
-        ang = p.body.angle
-        dot = (sx + math.cos(ang) * r * 0.6, sy + math.sin(ang) * r * 0.6)
-        pygame.draw.circle(surf, (20, 40, 60), dot, 3)
+        if self.ball_texture is not None and p is self.player:
+            # spins the face texture live with the ball's own rolling motion
+            rotated = pygame.transform.rotate(self.ball_texture, -math.degrees(p.body.angle))
+            surf.blit(rotated, rotated.get_rect(center=(sx, sy)))
+            pygame.draw.circle(surf, (255, 255, 255), (sx, sy), r, 2)
+        else:
+            pygame.draw.circle(surf, color, (sx, sy), r)
+            pygame.draw.circle(surf, (255, 255, 255), (sx, sy), r, 2)
+            ang = p.body.angle
+            dot = (sx + math.cos(ang) * r * 0.6, sy + math.sin(ang) * r * 0.6)
+            pygame.draw.circle(surf, (20, 40, 60), dot, 3)
         if p.hurt_cooldown > 0.35:
             ring = pygame.Surface((r * 4, r * 4), pygame.SRCALPHA)
             a = int(160 * (p.hurt_cooldown - 0.35) / 0.3)
@@ -590,19 +630,34 @@ class Game:
             surf.blit(ring, (sx - r * 2, sy - r * 2))
 
     # ------------------------------------------------------------ loop
-    def run(self):
+    def run_embedded(self):
+        """Blocks until the player exits Skibidi Physics. Returns "menu" (go
+        back to a launcher's game-select screen) or "quit" (close the app).
+        Never calls pygame.quit()/sys.exit() itself -- a caller embedding
+        this alongside other games owns that decision."""
+        self.want_exit = None
         running = True
         while running:
             dt = self.clock.tick(C.FPS) / 1000.0
             dt = min(dt, 0.05)
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    running = False
+                    self.want_exit = "quit"
                 else:
                     self.handle_event(event)
+                if self.want_exit:
+                    running = False
+                    break
             if not running:
                 break
             self.update(dt)
             self.draw()
             pygame.display.flip()
+        return self.want_exit or "menu"
+
+    def run(self):
+        """Standalone entry point: play until the window closes, then quit
+        the process outright."""
+        self.run_embedded()
         pygame.quit()
+        sys.exit()

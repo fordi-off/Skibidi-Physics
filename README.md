@@ -1,13 +1,23 @@
 # Skibidi Physics
 
-A physics-based puzzle platformer in the spirit of *Getting Over It* and
-gravity-flip games: you're a ball, the world is built out of raw pymunk
-geometry, and the whole game is about reading momentum, not pixel-perfect
-platforming. There are no hand-authored levels — every run is procedurally
-generated and gets meaner as you go.
+`python main.py` opens a launcher menu with two games in it:
+
+- **Skibidi Physics** — a physics-based puzzle platformer in the spirit of
+  *Getting Over It* and gravity-flip games: you're a ball, the world is
+  built out of raw pymunk geometry, and the whole game is about reading
+  momentum, not pixel-perfect platforming. Every level is procedurally
+  generated and gets meaner as you go.
+- **Alien Shooter** — a 4-wave Galaxy Invaders-style shooter. Waves 1-3
+  are alien formations (elite laser-eyed enemies mix in from wave 2);
+  wave 4 is the boss, who alternates between a cucumber-projectile
+  barrage and a sweeping telegraphed laser wall. Beat it and you get a
+  victory screen with a button back to the launcher.
+
+Both games share one pygame window and hand control back to the launcher
+menu when you back out (`Esc`) rather than closing the app.
 
 Built with **pygame** for rendering/input and **pymunk** (Chipmunk2D) for
-the physics simulation.
+Skibidi Physics' simulation.
 
 ## Run it
 
@@ -60,7 +70,7 @@ python main.py
   advances when *you* reach the goal; the AI beating you there just costs
   you that heat on the scoreboard. Toggle it off entirely with `T`.
 
-## Controls
+## Controls -- Skibidi Physics
 
 | Action | Key |
 |---|---|
@@ -71,12 +81,35 @@ python main.py
 | Restart level | `R` |
 | Toggle AI racer | `T` |
 | Toggle fullscreen | `F11` (or `F`) |
-| Pause | `Esc` |
+| Pause / back to game select | `Esc` |
+
+## Controls -- Alien Shooter
+
+| Action | Key |
+|---|---|
+| Move ship | `Left`/`Right` or `A`/`D` |
+| Shoot | `Space` |
+| Pause | `P` |
+| Restart after game over | `R` |
+| Back to game select | `Esc` |
+
+## Custom textures
+
+Drop a PNG at any of these paths and it's picked up automatically, no code
+changes needed -- everything falls back to a procedural placeholder if the
+file isn't there:
+
+| File | Used for |
+|---|---|
+| `skibidi/assets/ball_face.png` | the player's ball in Skibidi Physics (circle-masked, spins with the ball) |
+| `alien_shooter/assets/elite_enemy.png` | the elite alien's sprite (laser attack, has a health bar) |
+| `alien_shooter/assets/cucumber.png` | the boss's projectile |
 
 ## Project layout
 
 ```
-main.py                  entry point
+main.py                  entry point -- opens the launcher
+launcher.py               game-select menu; owns the shared pygame window
 skibidi/
   config.py               tuning constants, colors, collision types
   game.py                 state machine, physics stepping, input, rendering
@@ -89,7 +122,11 @@ skibidi/
   particles.py            lightweight particle system
   audio.py                numpy-synthesized sound effects
   ui.py                   HUD, menu, pause and level-complete overlays
+  assets/                 ball_face.png goes here
+alien_shooter/
+  game.py                 4-wave campaign, elite enemy, boss, victory screen
+  assets/                 sprites; cucumber.png / elite_enemy.png go here
 ```
 
-Progress (furthest level reached, best times per level) is saved locally to
-`save.json` next to `main.py`.
+Skibidi Physics progress (furthest level reached, best times per level) is
+saved locally to `save.json` next to `main.py`.
