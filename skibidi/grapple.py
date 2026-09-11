@@ -8,6 +8,16 @@ live, which is what lets you climb or lower yourself mid-swing.
 import pymunk
 from . import config as C
 
+# Only these are legitimate things to hook onto. Without this filter the
+# raycast happily snags on invisible gameplay sensors (wind zones, gravity
+# zones, checkpoints, the goal pole) since segment_query doesn't care about
+# a shape's `sensor` flag -- that made firing the grapple near one of those
+# zones silently grab empty air instead of the ground behind it.
+_GRAPPLE_TARGETS = {
+    int(C.CT.GROUND), int(C.CT.MOVING), int(C.CT.CRUMBLE),
+    int(C.CT.BOUNCY), int(C.CT.ANCHOR),
+}
+
 
 class Grapple:
     def __init__(self, space):
@@ -29,11 +39,11 @@ class Grapple:
         end = origin + direction * min(dist, C.GRAPPLE_MAX_RANGE)
 
         filt = pymunk.ShapeFilter(group=1)  # matches player's group -> skip self
-        hit = self.space.segment_query_first(origin, end, 2.0, filt)
-        if hit is None or hit.shape is None:
+        hits = self.space.segment_query(origin, end, 2.0, filt)
+        valid = [h for h in hits if h.shape is not None and h.shape.collision_type in _GRAPPLE_TARGETS]
+        if not valid:
             return False
-        if getattr(hit.shape, "sensor", False) is False and hit.shape.collision_type == int(C.CT.HAZARD):
-            return False  # can't grapple onto spikes
+        hit = min(valid, key=lambda h: h.alpha)
 
         point = hit.point
         length = (point - origin).length

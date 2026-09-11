@@ -47,7 +47,8 @@ def save_progress(data):
 class Game:
     def __init__(self):
         pygame.init()
-        self.screen = pygame.display.set_mode((C.SCREEN_WIDTH, C.SCREEN_HEIGHT))
+        self.fullscreen = True
+        self.screen = self._make_display(self.fullscreen)
         pygame.display.set_caption("Skibidi Physics")
         self.clock = pygame.time.Clock()
         self.audio = Audio()
@@ -77,6 +78,27 @@ class Game:
         self.level = None
         self.player = None
         self.grapple = None
+
+    # ------------------------------------------------------------ display
+    def _make_display(self, fullscreen):
+        # SCALED keeps the game logic at a fixed 1280x720 and lets SDL
+        # scale that up to whatever the real display resolution is, so
+        # fullscreen "just works" on any monitor without touching any
+        # world-space or UI coordinates elsewhere in the code. Mouse
+        # positions from pygame are already translated back into this
+        # logical space, so grapple aiming needs no extra handling.
+        flags = pygame.SCALED | (pygame.FULLSCREEN if fullscreen else 0)
+        try:
+            return pygame.display.set_mode((C.SCREEN_WIDTH, C.SCREEN_HEIGHT), flags)
+        except pygame.error:
+            # some drivers/multi-monitor setups choke on FULLSCREEN|SCALED --
+            # fall back to a plain window rather than failing to launch.
+            self.fullscreen = False
+            return pygame.display.set_mode((C.SCREEN_WIDTH, C.SCREEN_HEIGHT), pygame.SCALED)
+
+    def toggle_fullscreen(self):
+        self.fullscreen = not self.fullscreen
+        self.screen = self._make_display(self.fullscreen)
 
     # ------------------------------------------------------------ setup
     def _build_space(self):
@@ -265,6 +287,8 @@ class Game:
                     self.state = PLAYING
             elif event.key == pygame.K_q and self.state == PAUSED:
                 self.state = MENU
+            elif event.key in (pygame.K_F11, pygame.K_f):
+                self.toggle_fullscreen()
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if self.state == MENU:
                 self.start_new_run()

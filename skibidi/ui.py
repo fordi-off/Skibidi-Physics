@@ -45,7 +45,8 @@ class UI:
             self.text(surf, "GRAPPLED", self.font_small, (C.SCREEN_WIDTH - 24, 18),
                       color=C.COLOR.ANCHOR, center=False)
 
-        hint = "A/D or Arrows move   SPACE jump   Mouse: hold to fire grapple, scroll/W-S to reel   R restart   Esc pause"
+        hint = ("A/D or Arrows move   SPACE jump   Mouse: hold to fire grapple, scroll/W-S to reel   "
+                "R restart   F11 fullscreen   Esc pause")
         img = self.font_tiny.render(hint, True, (170, 180, 205))
         surf.blit(img, (24, C.SCREEN_HEIGHT - 30))
 
@@ -73,6 +74,7 @@ class UI:
             "Left Mouse (hold)     -  fire & hold grapple rope at cursor",
             "W/S or Scroll         -  reel the rope in / out while grappled",
             "R                     -  restart this level",
+            "F11                   -  toggle fullscreen",
             "Esc                   -  pause",
         ]
         y = 320
