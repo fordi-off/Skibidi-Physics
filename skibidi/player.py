@@ -5,7 +5,7 @@ from . import config as C
 
 
 class Player:
-    def __init__(self, space, x, y):
+    def __init__(self, space, x, y, is_ai=False):
         moment = pymunk.moment_for_circle(C.PLAYER_MASS, 0, C.PLAYER_RADIUS)
         self.body = pymunk.Body(C.PLAYER_MASS, moment)
         self.body.position = (x, y)
@@ -13,8 +13,20 @@ class Player:
         self.shape.friction = C.PLAYER_FRICTION
         self.shape.elasticity = C.PLAYER_ELASTICITY
         self.shape.collision_type = int(C.CT.PLAYER)
-        self.shape.filter = pymunk.ShapeFilter(group=1)
+        # The human and the AI racer pass through each other -- a race,
+        # not a shoving match, so the AI can never bump you off a ledge.
+        # (The grapple hook separately refuses to target CT.PLAYER shapes
+        # at all, so this filter isn't needed for that.)
+        all_masks = pymunk.ShapeFilter.ALL_MASKS()
+        if is_ai:
+            self.shape.filter = pymunk.ShapeFilter(categories=C.CATEGORY_AI,
+                                                     mask=all_masks ^ C.CATEGORY_HUMAN)
+        else:
+            self.shape.filter = pymunk.ShapeFilter(categories=C.CATEGORY_HUMAN,
+                                                     mask=all_masks ^ C.CATEGORY_AI)
+        self.shape.owner = self
         space.add(self.body, self.shape)
+        self.is_ai = is_ai
 
         self.ground_contacts = 0
         self.coyote_timer = 0.0

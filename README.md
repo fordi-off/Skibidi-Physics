@@ -48,6 +48,17 @@ python main.py
 - Every sound effect is synthesized on the fly with numpy (no audio
   assets) — short procedural blips and noise bursts shaped with an
   envelope.
+- **Race an AI.** A second ball runs the same procedurally generated course
+  alongside you. It's not a pathfinder with the map memorized — each frame
+  it just looks a short distance ahead (relative to whichever way "down"
+  currently is, so it handles gravity-flip corridors on its own) and reacts:
+  jumps over walls, gaps and spikes, and grabs the nearest grapple anchor
+  when a gap looks too wide to clear on foot. It can whiff a jump or misjudge
+  a swing, same as you can — it's an opponent, not an oracle. It runs on the
+  same physics you do and passes through you rather than shoving you off
+  ledges, so it's a race, not a wrestling match. The level only actually
+  advances when *you* reach the goal; the AI beating you there just costs
+  you that heat on the scoreboard. Toggle it off entirely with `T`.
 
 ## Controls
 
@@ -58,6 +69,8 @@ python main.py
 | Fire / hold grapple | Left mouse button, aimed at the cursor |
 | Reel rope in / out | `W`/`S` or arrow keys while grappled, or scroll wheel |
 | Restart level | `R` |
+| Toggle AI racer | `T` |
+| Toggle fullscreen | `F11` (or `F`) |
 | Pause | `Esc` |
 
 ## Project layout
@@ -68,6 +81,7 @@ skibidi/
   config.py               tuning constants, colors, collision types
   game.py                 state machine, physics stepping, input, rendering
   player.py               the ball: movement, jumping, gravity-relative control
+  ai.py                   reflex-based AI racer (lookahead + grapple logic)
   grapple.py              the rope mechanic (pymunk SlideJoint)
   level_elements.py       platforms, hazards, wind/gravity zones, goal, etc.
   level_generator.py      seeded procedural section-pattern generator

@@ -45,6 +45,12 @@ CRUMBLE_DELAY = 0.35
 # --- Space damping (air resistance) ---
 SPACE_DAMPING = 0.9985
 
+# --- Collision filter categories (separate from collision_type) ---
+# Used only to keep the human and the AI racer from physically colliding
+# with each other -- both still collide normally with every level shape.
+CATEGORY_HUMAN = 1 << 0
+CATEGORY_AI = 1 << 1
+
 # --- Collision types ---
 class CT(IntEnum):
     PLAYER = 1
@@ -77,6 +83,11 @@ class COLOR:
     PLAYER = (95, 240, 255)
     PLAYER_GLOW = (40, 130, 160)
     TRAIL = (95, 200, 255)
+
+    AI_PLAYER = (255, 140, 90)
+    AI_GLOW = (160, 80, 40)
+    AI_TRAIL = (255, 170, 120)
+    AI_ROPE = (255, 200, 170)
 
     GROUND = (58, 74, 107)
     GROUND_EDGE = (110, 150, 210)

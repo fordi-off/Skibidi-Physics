@@ -38,8 +38,10 @@ class Grapple:
         direction = to_target.normalized()
         end = origin + direction * min(dist, C.GRAPPLE_MAX_RANGE)
 
-        filt = pymunk.ShapeFilter(group=1)  # matches player's group -> skip self
-        hits = self.space.segment_query(origin, end, 2.0, filt)
+        # No group filtering needed here: _GRAPPLE_TARGETS already excludes
+        # CT.PLAYER entirely, which is what keeps this from ever hooking
+        # the firing ball itself (or the other racer).
+        hits = self.space.segment_query(origin, end, 2.0, pymunk.ShapeFilter())
         valid = [h for h in hits if h.shape is not None and h.shape.collision_type in _GRAPPLE_TARGETS]
         if not valid:
             return False

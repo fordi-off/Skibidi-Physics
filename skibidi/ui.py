@@ -41,7 +41,8 @@ class UI:
         s = t - m * 60
         return f"{m:02d}:{s:05.2f}"
 
-    def draw_hud(self, surf, level_index, deaths, elapsed, best_time, grapple_active):
+    def draw_hud(self, surf, level_index, deaths, elapsed, best_time, grapple_active,
+                 ai_present=False, ai_finished=False, player_wins=0, ai_wins=0):
         self.text(surf, f"LEVEL {level_index + 1}", self.font_mid, (24, 18))
         self.text(surf, f"time  {self.format_time(elapsed)}", self.font_small, (24, 62))
         best_s = self.format_time(best_time) if best_time is not None else "--:--.--"
@@ -51,9 +52,15 @@ class UI:
             self.text(surf, "GRAPPLED", self.font_small, (C.SCREEN_WIDTH - 24, 18),
                       color=C.COLOR.ANCHOR, align="right")
 
-        hint = ("A/D or Arrows move   SPACE jump   Left mouse: fire grapple   "
-                "Right mouse (hold): reel in   S/Down or scroll: reel out   "
-                "R restart   F11 fullscreen   Esc pause")
+        if ai_present:
+            self.text(surf, f"YOU {player_wins} - {ai_wins} AI", self.font_small,
+                      (C.SCREEN_WIDTH - 24, 46), color=C.COLOR.AI_PLAYER, align="right")
+            if ai_finished:
+                self.text(surf, "the AI reached the goal!", self.font_small,
+                          (C.SCREEN_WIDTH - 24, 70), color=C.COLOR.AI_PLAYER, align="right")
+
+        hint = ("A/D or Arrows move   SPACE jump   Mouse: hold to fire grapple, W/S or scroll to reel   "
+                "R restart   F11 fullscreen   T toggle AI   Esc pause")
         img = self.font_tiny.render(hint, True, (170, 180, 205))
         surf.blit(img, (24, C.SCREEN_HEIGHT - 30))
 
@@ -75,12 +82,14 @@ class UI:
             "Roll, jump, swing and reel your way across procedurally",
             "generated obstacle courses. Wind will push you. Gravity",
             "will flip on you. Grapple across the gaps it makes.",
+            "An AI racer runs the same course alongside you -- beat it",
+            "to the goal, or bump it off a ledge along the way.",
             "",
             "A / D or Left-Right   -  roll",
             "SPACE / W / Up        -  jump (works on ice too, careful)",
             "Left Mouse (hold)     -  fire & hold grapple rope at cursor",
-            "Right Mouse (hold)    -  reel the rope in while grappled",
-            "S/Down or Scroll      -  reel the rope out (or fine-tune in)",
+            "W/S or Scroll         -  reel the rope in / out while grappled",
+            "T                     -  toggle the AI racer on/off",
             "R                     -  restart this level",
             "F11                   -  toggle fullscreen",
             "Esc                   -  pause",

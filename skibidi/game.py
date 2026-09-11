@@ -9,6 +9,7 @@ import pygame
 import pymunk
 
 from . import config as C
+from .ai import AIController
 from .audio import Audio
 from .camera import Camera
 from .grapple import Grapple
@@ -80,6 +81,17 @@ class Game:
         self.player = None
         self.grapple = None
 
+        self.ai_enabled = True
+        self.ai_player = None
+        self.ai_grapple = None
+        self.ai_controller = None
+        self.ai_move_dir = 0
+        self.ai_finished = False
+        self.ai_finish_time = None
+        self.ai_last_safe = (0, 0)
+        self.player_wins = 0
+        self.ai_wins = 0
+
     # ------------------------------------------------------------ display
     def _make_display(self, fullscreen):
         # SCALED keeps the game logic at a fixed 1280x720 and lets SDL
@@ -120,71 +132,108 @@ class Game:
                     return o
             return None
 
+        def player_of(arb):
+            # Both the human and the AI ball share collision_type PLAYER,
+            # so every handler below resolves *which* Player instance is
+            # actually involved via the shape's owner, rather than assuming
+            # it's always the human.
+            for s in arb.shapes:
+                if s.collision_type == int(CT.PLAYER):
+                    return getattr(s, "owner", None)
+            return None
+
         def on_ground_begin(arb, space_, data):
-            self.player.ground_contacts += 1
-            speed = self.player.body.velocity.length
-            if speed > 260:
-                px, py = self.player.body.position
-                self.particles.dust(px, py + C.PLAYER_RADIUS * 0.6, (200, 205, 225), count=7)
-                self.audio.play("land", vol=min(1.0, speed / 900))
-                self.camera.add_trauma(min(0.22, speed / 4200))
+            p = player_of(arb)
+            if p is None:
+                return
+            p.ground_contacts += 1
+            if p is self.player:
+                speed = p.body.velocity.length
+                if speed > 260:
+                    px, py = p.body.position
+                    self.particles.dust(px, py + C.PLAYER_RADIUS * 0.6, (200, 205, 225), count=7)
+                    self.audio.play("land", vol=min(1.0, speed / 900))
+                    self.camera.add_trauma(min(0.22, speed / 4200))
 
         def on_ground_sep(arb, space_, data):
-            self.player.ground_contacts = max(0, self.player.ground_contacts - 1)
+            p = player_of(arb)
+            if p is not None:
+                p.ground_contacts = max(0, p.ground_contacts - 1)
 
         space.on_collision(int(CT.PLAYER), int(CT.GROUND), begin=on_ground_begin, separate=on_ground_sep)
         space.on_collision(int(CT.PLAYER), int(CT.MOVING), begin=on_ground_begin, separate=on_ground_sep)
 
         def on_bouncy(arb, space_, data):
-            body = self.player.body
-            vx, vy = body.velocity
+            p = player_of(arb)
+            if p is None:
+                return
+            vx, vy = p.body.velocity
             boost = C.BOUNCY_BOOST + min(320, abs(vy) * 0.35)
-            body.velocity = (vx, -boost)
-            px, py = body.position
+            p.body.velocity = (vx, -boost)
+            px, py = p.body.position
             self.particles.burst(px, py + C.PLAYER_RADIUS, C.COLOR.BOUNCY, count=16,
                                   speed=280, life=0.45, gravity=900, radius=3)
-            self.audio.play("bounce")
-            self.camera.add_trauma(0.18)
+            if p is self.player:
+                self.audio.play("bounce")
+                self.camera.add_trauma(0.18)
 
         space.on_collision(int(CT.PLAYER), int(CT.BOUNCY), begin=on_bouncy)
 
         def on_hazard(arb, space_, data):
+            p = player_of(arb)
+            if p is None:
+                return
             hshape = None
             for s in arb.shapes:
                 if s.collision_type == int(CT.HAZARD):
                     hshape = s
-            px, py = self.player.body.position
+            px, py = p.body.position
             if hshape is not None:
                 hx, hy = hshape.body.position
             else:
                 hx, hy = px, py + 40
             direction = pymunk.Vec2d(px - hx, py - hy - 60)
-            if self.player.hurt(direction):
+            if p.hurt(direction):
                 self.particles.burst(px, py, C.COLOR.HAZARD, count=24, speed=340,
                                       life=0.55, gravity=750, radius=3)
-                self.audio.play("hurt")
-                self.camera.add_trauma(0.45)
-                self.deaths_this_run += 1
+                if p is self.player:
+                    self.audio.play("hurt")
+                    self.camera.add_trauma(0.45)
+                    self.deaths_this_run += 1
 
         space.on_collision(int(CT.PLAYER), int(CT.HAZARD), begin=on_hazard)
 
         def on_crumble_begin(arb, space_, data):
-            self.player.ground_contacts += 1
+            p = player_of(arb)
+            if p is None:
+                return
+            p.ground_contacts += 1
             o = owner_of(arb, lambda o: hasattr(o, "trigger"))
             if o is not None:
                 o.trigger()
 
         def on_crumble_sep(arb, space_, data):
-            self.player.ground_contacts = max(0, self.player.ground_contacts - 1)
+            p = player_of(arb)
+            if p is not None:
+                p.ground_contacts = max(0, p.ground_contacts - 1)
 
         space.on_collision(int(CT.PLAYER), int(CT.CRUMBLE), begin=on_crumble_begin, separate=on_crumble_sep)
 
         def on_goal(arb, space_, data):
-            self.trigger_level_complete()
+            p = player_of(arb)
+            if p is self.player:
+                self.trigger_level_complete()
+            elif p is self.ai_player:
+                self._ai_reaches_goal()
 
         space.on_collision(int(CT.PLAYER), int(CT.GOAL), begin=on_goal)
 
         def on_checkpoint(arb, space_, data):
+            # Only the human activates checkpoints -- they're the human's
+            # respawn trail. The AI tracks its own last safe ground instead,
+            # so it can't accidentally hand the human a free skip-ahead.
+            if player_of(arb) is not self.player:
+                return
             o = owner_of(arb, lambda o: hasattr(o, "active"))
             if o is not None and not o.active:
                 o.active = True
@@ -196,27 +245,32 @@ class Game:
         space.on_collision(int(CT.PLAYER), int(CT.CHECKPOINT), begin=on_checkpoint)
 
         def on_wind_begin(arb, space_, data):
+            p = player_of(arb)
             o = owner_of(arb, lambda o: hasattr(o, "force"))
-            if o is not None and o not in self.player.active_wind_zones:
-                self.player.active_wind_zones.append(o)
+            if p is not None and o is not None and o not in p.active_wind_zones:
+                p.active_wind_zones.append(o)
 
         def on_wind_sep(arb, space_, data):
+            p = player_of(arb)
             o = owner_of(arb, lambda o: hasattr(o, "force"))
-            if o is not None and o in self.player.active_wind_zones:
-                self.player.active_wind_zones.remove(o)
+            if p is not None and o is not None and o in p.active_wind_zones:
+                p.active_wind_zones.remove(o)
 
         space.on_collision(int(CT.PLAYER), int(CT.WIND_ZONE), begin=on_wind_begin, separate=on_wind_sep)
 
         def on_gz_begin(arb, space_, data):
+            p = player_of(arb)
             o = owner_of(arb, lambda o: hasattr(o, "gravity"))
-            if o is not None:
-                self.player.active_gravity_zones.append(o)
-                self.audio.play("gravity_flip")
+            if p is not None and o is not None:
+                p.active_gravity_zones.append(o)
+                if p is self.player:
+                    self.audio.play("gravity_flip")
 
         def on_gz_sep(arb, space_, data):
+            p = player_of(arb)
             o = owner_of(arb, lambda o: hasattr(o, "gravity"))
-            if o is not None and o in self.player.active_gravity_zones:
-                self.player.active_gravity_zones.remove(o)
+            if p is not None and o is not None and o in p.active_gravity_zones:
+                p.active_gravity_zones.remove(o)
 
         space.on_collision(int(CT.PLAYER), int(CT.GRAVITY_ZONE), begin=on_gz_begin, separate=on_gz_sep)
 
@@ -235,6 +289,11 @@ class Game:
         self.level = generate_level(self.space, seed, level_index)
         self.player = Player(self.space, *self.level.start_pos)
         self.grapple = Grapple(self.space)
+        self.ai_player = None
+        self.ai_grapple = None
+        self.ai_controller = None
+        if self.ai_enabled:
+            self._spawn_ai()
         self.camera.x = self.level.start_pos[0] - C.SCREEN_WIDTH * 0.38
         self.camera.y = self.level.start_pos[1] - C.SCREEN_HEIGHT * 0.52
         self.camera.trauma = 0.0
@@ -242,6 +301,29 @@ class Game:
         self.level_complete_timer = 0.0
         self.accumulator = 0.0
         self.particles.particles.clear()
+
+    def _spawn_ai(self):
+        if self.level is None or self.space is None:
+            return
+        sx, sy = self.level.start_pos
+        ai_start = (sx - 36, sy)
+        self.ai_player = Player(self.space, *ai_start, is_ai=True)
+        self.ai_grapple = Grapple(self.space)
+        self.ai_controller = AIController(self.level, self.space)
+        self.ai_move_dir = 0
+        self.ai_finished = False
+        self.ai_finish_time = None
+        self.ai_last_safe = ai_start
+
+    def _despawn_ai(self):
+        if self.ai_grapple is not None:
+            self.ai_grapple.release()
+        if self.ai_player is not None and self.space is not None:
+            if self.ai_player.shape in self.space.shapes:
+                self.space.remove(self.ai_player.body, self.ai_player.shape)
+        self.ai_player = None
+        self.ai_grapple = None
+        self.ai_controller = None
 
     def trigger_level_complete(self):
         if self.level.completed:
@@ -251,6 +333,11 @@ class Game:
         self.level_complete_timer = 2.0
         self.audio.play("goal")
         self.camera.add_trauma(0.2)
+        if self.ai_player is not None:
+            if self.ai_finished:
+                self.ai_wins += 1
+            else:
+                self.player_wins += 1
         best_times = self.save.setdefault("best_times", {})
         key = str(self.level_index)
         prev_best = best_times.get(key)
@@ -260,6 +347,13 @@ class Game:
         self.save["best_level"] = max(self.save.get("best_level", 0), self.level_index + 1)
         save_progress(self.save)
 
+    def _ai_reaches_goal(self):
+        if self.ai_finished:
+            return
+        self.ai_finished = True
+        self.ai_finish_time = self.elapsed
+        self.audio.play("checkpoint", vol=0.5)
+
     def handle_death_fall(self):
         self.deaths_this_run += 1
         rp = self.level.respawn_point_before(self.player.body.position.x)
@@ -267,6 +361,10 @@ class Game:
         self.player.teleport(*rp)
         self.camera.add_trauma(0.3)
         self.particles.burst(rp[0], rp[1], (150, 160, 215), count=10, speed=140, life=0.4, gravity=0)
+
+    def ai_handle_death_fall(self):
+        self.ai_grapple.release()
+        self.ai_player.teleport(*self.ai_last_safe)
 
     # ------------------------------------------------------------ input
     def handle_event(self, event):
@@ -290,6 +388,13 @@ class Game:
                 self.state = MENU
             elif event.key in (pygame.K_F11, pygame.K_f):
                 self.toggle_fullscreen()
+            elif event.key == pygame.K_t:
+                self.ai_enabled = not self.ai_enabled
+                if self.level is not None:
+                    if self.ai_enabled:
+                        self._spawn_ai()
+                    else:
+                        self._despawn_ai()
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if self.state == MENU:
                 self.start_new_run()
@@ -327,9 +432,14 @@ class Game:
     def _substep(self, dt):
         self.player.apply_movement(self.move_dir, dt)
         self.player.update_pre_step(dt, self.space)
+        if self.ai_player is not None:
+            self.ai_player.apply_movement(self.ai_move_dir, dt)
+            self.ai_player.update_pre_step(dt, self.space)
         self.space.step(dt)
         if self.player.body.position.y > C.VOID_Y:
             self.handle_death_fall()
+        if self.ai_player is not None and self.ai_player.body.position.y > C.VOID_Y:
+            self.ai_handle_death_fall()
 
     def update(self, dt):
         self.t += dt
@@ -341,20 +451,33 @@ class Game:
             self.move_dir += 1
 
         if self.state == PLAYING:
+            if self.ai_player is not None:
+                move_dir, want_jump, reel_dir = self.ai_controller.decide(
+                    self.ai_player, self.ai_grapple, dt)
+                self.ai_move_dir = move_dir
+                if want_jump:
+                    self.ai_player.request_jump()
+                if reel_dir:
+                    self.ai_grapple.reel(reel_dir, dt)
+
             self.physics_step(dt)
+
             if self.grapple.active:
-                # W/Up is also the jump key, so it deliberately does NOT reel
-                # in here -- that overload used to make the rope shrink
-                # "randomly" any time you tapped jump mid-swing. Reeling in
-                # is its own dedicated input (right mouse) instead.
                 reel_dir = 0
-                if self.reeling_in:
+                if keys[pygame.K_w] or keys[pygame.K_UP] or self.reeling_in:
                     reel_dir -= 1
                 if keys[pygame.K_s] or keys[pygame.K_DOWN]:
                     reel_dir += 1
                 if reel_dir:
                     self.grapple.reel(reel_dir, dt)
             self.grapple.update(dt)
+
+            if self.ai_player is not None:
+                self.ai_grapple.update(dt)
+                if self.ai_player.grounded:
+                    apx, apy = self.ai_player.body.position
+                    self.ai_last_safe = (apx, apy - C.PLAYER_RADIUS - 2)
+
             self.level.update(dt)
             self.elapsed += dt
             self.camera.follow(self.player.body.position.x, self.player.body.position.y, dt)
@@ -371,10 +494,15 @@ class Game:
         self.particles.update(dt)
 
     def _emit_trail(self):
-        spd = self.player.body.velocity.length
+        self._emit_trail_for(self.player, C.COLOR.TRAIL)
+        if self.ai_player is not None:
+            self._emit_trail_for(self.ai_player, C.COLOR.AI_TRAIL)
+
+    def _emit_trail_for(self, p, color):
+        spd = p.body.velocity.length
         if spd > 150 and random.random() < 0.5:
-            px, py = self.player.body.position
-            self.particles.sparkle(px, py, C.COLOR.TRAIL)
+            px, py = p.body.position
+            self.particles.sparkle(px, py, color)
 
     # ------------------------------------------------------------ draw
     def draw(self):
@@ -383,14 +511,19 @@ class Game:
 
         if self.level is not None and self.state in (PLAYING, PAUSED, LEVEL_COMPLETE):
             self.level.draw(surf, self.camera, self.particles)
-            self._draw_grapple(surf)
-            self._draw_player(surf)
+            if self.ai_player is not None:
+                self._draw_rope(surf, self.ai_grapple, self.ai_player, C.COLOR.AI_ROPE)
+                self._draw_ball(surf, self.ai_player, C.COLOR.AI_PLAYER, C.COLOR.AI_GLOW)
+            self._draw_rope(surf, self.grapple, self.player, C.COLOR.ROPE)
+            self._draw_ball(surf, self.player, C.COLOR.PLAYER, C.COLOR.PLAYER_GLOW)
             self.particles.draw(surf, self.camera)
 
             best_times = self.save.get("best_times", {})
             best = best_times.get(str(self.level_index))
             self.ui.draw_hud(surf, self.level_index, self.deaths_this_run, self.elapsed,
-                              best, self.grapple.active)
+                              best, self.grapple.active, ai_present=self.ai_player is not None,
+                              ai_finished=self.ai_finished, player_wins=self.player_wins,
+                              ai_wins=self.ai_wins)
 
             if self.state == PAUSED:
                 self.ui.draw_pause(surf)
@@ -422,32 +555,30 @@ class Game:
             c = tuple(int(v * twinkle) for v in C.COLOR.STAR)
             pygame.draw.circle(surf, c, (int(dx), int(sy)), max(1, int(size)))
 
-    def _draw_grapple(self, surf):
-        g = self.grapple
+    def _draw_rope(self, surf, g, p, rope_color):
         if not g.active or g.anchor_point is None:
             return
-        p0 = self.camera.to_screen(*self.player.body.position)
+        p0 = self.camera.to_screen(*p.body.position)
         p1 = self.camera.to_screen(*g.anchor_point)
         mid = ((p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2)
-        cur_dist = (self.player.body.position - g.anchor_point).length
+        cur_dist = (p.body.position - g.anchor_point).length
         slack = max(0.0, g.length - cur_dist)
         sag = min(30, slack * 0.5)
         sag_point = (mid[0], mid[1] + sag)
-        pygame.draw.line(surf, C.COLOR.ROPE, p0, sag_point, 2)
-        pygame.draw.line(surf, C.COLOR.ROPE, sag_point, p1, 2)
+        pygame.draw.line(surf, rope_color, p0, sag_point, 2)
+        pygame.draw.line(surf, rope_color, sag_point, p1, 2)
         pygame.draw.circle(surf, C.COLOR.ANCHOR, p1, 6)
         pygame.draw.circle(surf, C.COLOR.ANCHOR, p1, 6, 1)
 
-    def _draw_player(self, surf):
-        p = self.player
+    def _draw_ball(self, surf, p, color, glow_color):
         sx, sy = self.camera.to_screen(*p.body.position)
         r = C.PLAYER_RADIUS
         glow = pygame.Surface((r * 5, r * 5), pygame.SRCALPHA)
-        pygame.draw.circle(glow, (*C.COLOR.PLAYER_GLOW, 90),
+        pygame.draw.circle(glow, (*glow_color, 90),
                             (glow.get_width() // 2, glow.get_height() // 2), int(r * 2.1))
         surf.blit(glow, (sx - glow.get_width() // 2, sy - glow.get_height() // 2),
                    special_flags=pygame.BLEND_RGBA_ADD)
-        pygame.draw.circle(surf, C.COLOR.PLAYER, (sx, sy), r)
+        pygame.draw.circle(surf, color, (sx, sy), r)
         pygame.draw.circle(surf, (255, 255, 255), (sx, sy), r, 2)
         ang = p.body.angle
         dot = (sx + math.cos(ang) * r * 0.6, sy + math.sin(ang) * r * 0.6)
