@@ -73,6 +73,7 @@ class Game:
         self.is_new_best = False
         self.accumulator = 0.0
         self.move_dir = 0
+        self.reeling_in = False
 
         self.space = None
         self.level = None
@@ -294,11 +295,15 @@ class Game:
                 self.start_new_run()
             elif self.state == PLAYING and event.button == 1:
                 self._fire_grapple(event.pos)
+            elif self.state == PLAYING and event.button == 3:
+                self.reeling_in = True
         elif event.type == pygame.MOUSEBUTTONUP:
             if self.state == PLAYING and event.button == 1:
                 if self.grapple.active:
                     self.audio.play("grapple_release")
                 self.grapple.release()
+            elif event.button == 3:
+                self.reeling_in = False
         elif event.type == pygame.MOUSEWHEEL:
             if self.state == PLAYING and self.grapple.active:
                 self.grapple.reel(-event.y, 1.0 / C.FPS * 6)
@@ -338,8 +343,12 @@ class Game:
         if self.state == PLAYING:
             self.physics_step(dt)
             if self.grapple.active:
+                # W/Up is also the jump key, so it deliberately does NOT reel
+                # in here -- that overload used to make the rope shrink
+                # "randomly" any time you tapped jump mid-swing. Reeling in
+                # is its own dedicated input (right mouse) instead.
                 reel_dir = 0
-                if keys[pygame.K_w] or keys[pygame.K_UP]:
+                if self.reeling_in:
                     reel_dir -= 1
                 if keys[pygame.K_s] or keys[pygame.K_DOWN]:
                     reel_dir += 1

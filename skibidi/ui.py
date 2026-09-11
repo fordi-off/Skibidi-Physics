@@ -11,22 +11,28 @@ class UI:
         self.font_small = pygame.font.SysFont("consolas,menlo,monospace", 20)
         self.font_tiny = pygame.font.SysFont("consolas,menlo,monospace", 15)
 
-    def text(self, surf, s, font, pos, color=C.COLOR.HUD_TEXT, shadow=True, center=False):
+    def text(self, surf, s, font, pos, color=C.COLOR.HUD_TEXT, shadow=True, center=False,
+              align="left"):
+        # `center=True` is shorthand for align="center" (kept for existing call sites).
+        if center:
+            align = "center"
+
+        def _place(rect, p):
+            if align == "center":
+                rect.center = p
+            elif align == "right":
+                rect.topright = p
+            else:
+                rect.topleft = p
+
         if shadow:
             sh = font.render(s, True, C.COLOR.HUD_SHADOW)
             r = sh.get_rect()
-            p = (pos[0] + 2, pos[1] + 2)
-            if center:
-                r.center = p
-            else:
-                r.topleft = p
+            _place(r, (pos[0] + 2, pos[1] + 2))
             surf.blit(sh, r)
         img = font.render(s, True, color)
         r = img.get_rect()
-        if center:
-            r.center = pos
-        else:
-            r.topleft = pos
+        _place(r, pos)
         surf.blit(img, r)
         return r
 
@@ -43,9 +49,10 @@ class UI:
         self.text(surf, f"falls {deaths}", self.font_small, (24, 110))
         if grapple_active:
             self.text(surf, "GRAPPLED", self.font_small, (C.SCREEN_WIDTH - 24, 18),
-                      color=C.COLOR.ANCHOR, center=False)
+                      color=C.COLOR.ANCHOR, align="right")
 
-        hint = ("A/D or Arrows move   SPACE jump   Mouse: hold to fire grapple, scroll/W-S to reel   "
+        hint = ("A/D or Arrows move   SPACE jump   Left mouse: fire grapple   "
+                "Right mouse (hold): reel in   S/Down or scroll: reel out   "
                 "R restart   F11 fullscreen   Esc pause")
         img = self.font_tiny.render(hint, True, (170, 180, 205))
         surf.blit(img, (24, C.SCREEN_HEIGHT - 30))
@@ -72,7 +79,8 @@ class UI:
             "A / D or Left-Right   -  roll",
             "SPACE / W / Up        -  jump (works on ice too, careful)",
             "Left Mouse (hold)     -  fire & hold grapple rope at cursor",
-            "W/S or Scroll         -  reel the rope in / out while grappled",
+            "Right Mouse (hold)    -  reel the rope in while grappled",
+            "S/Down or Scroll      -  reel the rope out (or fine-tune in)",
             "R                     -  restart this level",
             "F11                   -  toggle fullscreen",
             "Esc                   -  pause",
